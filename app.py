@@ -1,9 +1,15 @@
 import pickle
 import streamlit as st
 
-# Loading the model to predict on the data
-pickle_in = open('Customer_Churn.pkl', 'rb')
-classifier = pickle.load(pickle_in)
+
+# Load the trained model and scaler
+with open('Customer_Churn_Model.pkl', 'rb') as file:
+    model = pickle.load(file)
+
+with open('scaler.pkl', 'rb') as file:
+    scaler = pickle.load(file)
+
+
 
 def welcome():
     return 'Welcome to the best AI for predicting features that affect customer churn'

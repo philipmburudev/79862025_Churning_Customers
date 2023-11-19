@@ -10,6 +10,10 @@ Original file is located at
 from google.colab import drive
 drive.mount('/content/drive')
 
+!pip install keras-tuner
+
+!pip install scikeras
+
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -21,14 +25,28 @@ from tensorflow.keras.models import Model
 from tensorflow.keras import layers, models
 from tensorflow.keras.layers import Input, Dense
 from tensorflow.keras.models import Model
+import tensorflow as tf
+from tensorflow import keras
+from keras import layers
+from keras.layers import Input, Dense
+from keras import models
+from tensorflow.keras import layers
+import kerastuner as kt
+from kerastuner.tuners import RandomSearch
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score, roc_auc_score
 from keras.models import Model
 from keras.layers import Input, Dense
-from keras.wrappers.scikit_learn import KerasClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn import datasets
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import StratifiedKFold
 from keras import regularizers
+from scikeras.wrappers import KerasClassifier
 from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
@@ -151,91 +169,104 @@ X_test_scaled = scaler.transform(X_test)
 
 """
 
-# Define a function to create the Keras model using the Functional API
-def create_model(hidden_layer_sizes=(10,), activation='relu', alpha=0.0001):
-    inputs = Input(shape=(X_train.shape[1],))
-    x = inputs
-    for layer_size in hidden_layer_sizes:
-        x = Dense(layer_size, activation=activation, kernel_regularizer=regularizers.l2(alpha))(x)
-    outputs = Dense(1, activation='sigmoid')(x)
+def create_keras_model(optimizer = 'adam', hidden_layer_1_unit = 32, hidden_layer_2_unit = 16):
+    input_layer = Input(shape=15,)
+    # Define hidden layers with the specified number of units (neurons) and activation functions
+    hidden_layer_1 = Dense(hidden_layer_1_unit, activation='relu')(input_layer)
+    hidden_layer_2 = Dense(hidden_layer_2_unit, activation='relu')(hidden_layer_1)
 
-    model = Model(inputs=inputs, outputs=outputs)
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    output_layer = Dense(1, activation='sigmoid')(hidden_layer_2)
+
+    model = Model(inputs=input_layer, outputs=output_layer)
+
+    # Compile the model
+    model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
-# Function to perform GridSearchCV with Keras model
-def grid_search_keras_model(X_train, y_train):
-    # Wrap the Keras model into a scikit-learn compatible classifier
-    keras_classifier = KerasClassifier(build_fn=create_model, epochs=10, batch_size=32, verbose=0)
+# Create a KerasClassifier based on your function
+keras_model = KerasClassifier(model=create_keras_model,epochs=10, batch_size=32, verbose=0, hidden_layer_1_unit = 32, hidden_layer_2_unit = 16)
 
-    # Define the parameter grid for GridSearchCV
-    param_grid = {
-        'hidden_layer_sizes': [(10,), (50,), (100,)],
-        'activation': ['relu', 'tanh', 'sigmoid'],
-        'alpha': [0.0001, 0.001, 0.01],
-    }
+# Define hyperparameters for grid search
+param_grid = {
+    'optimizer': ['adam', 'sgd', 'rmsprop'],
+    'hidden_layer_1_unit': [32, 64, 128],
+    'hidden_layer_2_unit': [16, 32, 64],
+}
 
-    # Create GridSearchCV object
-    grid_search = GridSearchCV(keras_classifier, param_grid, cv=StratifiedKFold(n_splits=5), n_jobs=-1)
+"""**USING GRIDSEARCH TO FIND THE OPTIMAL PARAMETERS**"""
 
-    # Perform GridSearchCV with cross-validation
-    grid_search.fit(X_train, y_train)
+# Use GridSearchCV to find the optimal hyperparameters
+grid = GridSearchCV(estimator=keras_model, param_grid=param_grid, scoring='roc_auc', cv=3, error_score='raise')
+grid_result = grid.fit(X_train, y_train)
 
-    # Print the best parameters and corresponding accuracy
-    print("Best Parameters: ", grid_search.best_params_)
-    print("Best Cross-Validation Accuracy: {:.2f}%".format(grid_search.best_score_ * 100))
+# Get the best parameters
+best_params = grid_result.best_params_
 
-    return grid_search
-
-# Load or create your dataset
-# For example, let's use the breast cancer dataset from sklearn
-data = datasets.load_breast_cancer()
-X = data.data
-y = data.target
-
-# Split the dataset into training and test sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Standardize the features
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
-
-# Perform GridSearchCV
-grid_search = grid_search_keras_model(X_train, y_train)
-
-# Evaluate the best model on the test set
-test_predictions = grid_search.best_estimator_.predict(X_test)
-test_accuracy = accuracy_score(y_test, test_predictions)
-print("Test Set Accuracy: {:.2f}%".format(test_accuracy * 100))
+# Display the results
+print(f"Best Parameters: {best_params}")
 
 """**STEP 5: EVALUATE THE MODEL’S ACCURACY AND CALCULATE THE AUC SCORE**"""
 
 from sklearn.metrics import accuracy_score, roc_auc_score
 
-# ... (previous code remains the same)
+# Get the best parameters
+best_params = grid_result.best_params_
 
-# Perform GridSearchCV
-grid_search = grid_search_keras_model(X_train, y_train)
+# Create a new KerasClassifier with the best parameters
+best_keras_model = KerasClassifier(model=create_keras_model, **best_params, epochs=10, batch_size=32, verbose=0)
 
-# Evaluate the best model on the test set
-test_predictions_proba = grid_search.best_estimator_.predict_proba(X_test)  # Predict probabilities
-test_predictions = (test_predictions_proba[:, 1] > 0.5).astype(int)  # Convert probabilities to binary predictions
+# Train the model with the best parameters
+best_keras_model.fit(X_train, y_train)
 
-# Calculate accuracy
-test_accuracy = accuracy_score(y_test, test_predictions)
-print("Test Set Accuracy: {:.2f}%".format(test_accuracy * 100))
+# Predict on the test set
+y_pred = best_keras_model.predict(X_test)
 
-# Calculate AUC score
-test_auc = roc_auc_score(y_test, test_predictions_proba[:, 1])
-print("Test Set AUC Score: {:.2f}".format(test_auc))
+# Evaluate accuracy and AUC score
+accuracy = accuracy_score(y_test, y_pred)
+auc_score = roc_auc_score(y_test, y_pred)
 
+# Display the results
+print(f"Accuracy: {accuracy}")
+print(f"AUC Score: {auc_score}")
 
+"""**OPTIMIZING WITH THE BEST PARAMETERS TO GET THE FINAL ACCURACY AND AUC SCORES**"""
+
+from sklearn.metrics import accuracy_score, roc_auc_score
+from tensorflow.keras.optimizers import SGD
+
+input_layer = Input(shape=19,)
+# Define hidden layers with the specified number of units (neurons) and activation functions
+hidden_layer_1 = Dense(64, activation='relu')(input_layer)
+hidden_layer_2 = Dense(32, activation='relu')(hidden_layer_1)
+output_layer = Dense(1, activation='sigmoid')(hidden_layer_2)
+
+Opt_model = Model(inputs=input_layer, outputs=output_layer)
+
+    # Compile the model
+Opt_model.compile(optimizer= SGD(), loss='binary_crossentropy', metrics=['accuracy'])
+# Train the model with the best parameters
+Opt_model.fit(X_train, y_train, epochs=10, batch_size=32, verbose=1)
+
+# Predict on the test set
+y_pred_optimized = best_keras_model.predict(X_test)
+y_pred_opt_binary=(y_pred > 0.5).astype(int)
+
+# Evaluate accuracy and AUC score
+accuracy = accuracy_score(y_test,  y_pred_opt_binary)
+auc_score = roc_auc_score(y_test, y_pred_optimized)
+
+# Display the results
+print(f"Accuracy: {accuracy}")
+print(f"AUC Score: {auc_score}")
+
+"""**SAVING THE MODEL**"""
 
 import pickle
 
 # Save the model
-with open('Customer_Churn_Rate.pkl', 'wb') as file_name:
-    pickle.dump(mlp, file_name)
+with open('Customer_Churn_Model.pkl', 'wb') as file_name:
+    pickle.dump(best_keras_model, file_name)
 
-X_train.shape()
+import pickle
+with open('scaler.pkl', 'wb') as scaler_file:
+  pickle.dump(scaler, scaler_file)
